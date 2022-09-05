@@ -1,0 +1,16 @@
+[[source]]
+url = "https://pypi.org/simple"
+verify_ssl = true
+name = "pypi"
+
+[packages]
+pandas = "*"
+selenium = "*"
+selenium-wire = "*"
+webdriver-manager = "*"
+openpyxl = "*"
+pyotp = "*"
+
+[dev-packages]
+flake8 = "*"
+black = "*"
