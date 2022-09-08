@@ -160,8 +160,27 @@ class SRPO:
         ).send_keys(self.get_totp())
         wait.until(find_element("button", name="Continue")).click()
 
-    def set_area_to_bc(self):
-        """Set the SRPO to use the "Canada/British Columbia" region."""
+    def set_area(self, area: str, delay: float = 1.0):
+        """Set the SRPO to filter data by a certain scope.
+
+        It is expected that this is run on the home page that loads upon login, not other pages.
+
+        Args:
+            area (str): The name of the area as it appears in the SRPO's tree view.  For example, if the tree is:
+
+                Canada
+                    > British Columbia
+                        > BC01 - Sooke
+                        > BC02 - West Shore
+                        > ...
+
+                then setting the parameter to "British Columbia" will result in the BC region being selected as the
+                SRPO's scope.  Setting the parameter to "BC01 - Sooke" will select that cluster as the scope, etc.
+
+            delay (float): Wait for this long after the area is clicked.  It is necessary to wait for a bit to give
+                the home page time to generate the SVG charts.  A few quick tests have indicated that 1 second is
+                enough to give time for the charts to load.  However, it may not be necessary to wait for the graphics
+                to load, in which case this parameter can be set to 0."""
         wait = WebDriverWait(self.driver, 10)
         wait.until(
             find_element("button", name="Canada", comparator=str.startswith)
@@ -174,11 +193,12 @@ class SRPO:
             spans = self.driver.find_elements(by=By.TAG_NAME, value="span")
             if len(spans) > 100:
                 break
-        # there are two spans with the text "British Columbia", we want to click on the one furthest down in the page.
+        # Spans for the region name appear twice, we want to click on the furthest one down in the tree.
         max(
-            [span for span in spans if span.text == "British Columbia"],
+            [span for span in spans if span.text == area],
             key=lambda span: span.location["y"],
         ).click()
+        time.sleep(delay)
 
     def _get_cycles_data(self, label: str) -> pandas.DataFrame:
         """Download a spreadsheet containing cycle data and load it into a pandas dataframe.
@@ -200,7 +220,7 @@ class SRPO:
             find_element("button", text=" Cycles", comparator=str.endswith)
         ).click()
         wait.until(find_element("a", text=f"{label} Cycles")).click()
-        time.sleep(.5)
+        time.sleep(0.5)
         wait.until(find_element("button", name="EXPORT DATA|")).click()
         wait.until(find_element("a", text="Excel")).click()
         download_path = Path(self.download_dir.name).joinpath(f"{label} Cycles.xlsx")
@@ -276,8 +296,8 @@ if __name__ == "__main__":
 
     srpo = SRPO(args.secret)
     srpo.login(args.username, args.password)
-    srpo.set_area_to_bc()
-    latest_cycles = srpo.get_latest_cycles()
-    all_cycles = srpo.get_all_cycles()
-    individuals = srpo.get_individuals_data()
+    srpo.set_area("British Columbia")
+    # latest_cycles = srpo.get_latest_cycles()
+    # all_cycles = srpo.get_all_cycles()
+    # individuals = srpo.get_individuals_data()
     srpo.cleanup()
