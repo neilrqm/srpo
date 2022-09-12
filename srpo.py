@@ -4,6 +4,7 @@ import argparse
 import logging
 import pandas
 import pyotp
+import shutil
 import time
 import tempfile
 
@@ -18,6 +19,7 @@ from selenium.webdriver.common.by import By
 from selenium.common.exceptions import (
     WebDriverException,
     SessionNotCreatedException,
+    TimeoutException
 )
 
 
@@ -75,14 +77,17 @@ class find_element:
 
 
 class SRPO:
-    def __init__(self, secret: str = None):
+    def __init__(self, secret: str = None, output_dir: Path = None):
         """Create an object that can be used to access the SRPO.
 
         Args:
-            secret (str): A base32-encoded secret string that can be used to generate TOTP tokens (see get_totp())."""
+            secret (str): A base32-encoded secret string that can be used to generate TOTP tokens (see get_totp()).
+            output_dir (Path): If this is not None, then data files that are downloaded will be copied into this
+                folder before being deleted from the temporary directory."""
         self.logger = logging.getLogger("SRPO")
         self.driver = None
         self.secret = secret
+        self.output_dir = output_dir
 
         self.download_dir = tempfile.TemporaryDirectory()
         exp = {"download.default_directory": self.download_dir.name}
@@ -228,29 +233,60 @@ class SRPO:
             time.sleep(0.1)
         with open(download_path, "rb") as f:
             data = pandas.read_excel(f, header=[0, 1, 2])
+        if self.output_dir is not None:
+            shutil.copy2(download_path, self.output_dir)
         download_path.unlink()
         return data
 
     def get_latest_cycles(self) -> pandas.DataFrame:
+        """Get the table of the latest CGP data for each cluster.
+
+        This function will navigate to the latest cycles page, download the data in Excel format, and load it
+        into a DataFrame.
+
+        Returns:
+            The dataframe object returned by running `pandas.read_excel(f, header=[0, 1, 2])` on the downloaded
+            Excel spreadsheet."""
         return self._get_cycles_data("Latest")
 
     def get_all_cycles(self) -> pandas.DataFrame:
+        """Get the table of CGP data from all available cycles for each cluster.
+
+        This function will navigate to the all cycles page, download the data in Excel format, and load it
+        into a DataFrame.
+
+        Returns:
+            The dataframe object returned by running `pandas.read_excel(f, header=[0, 1, 2])` on the downloaded
+            Excel spreadsheet."""
         return self._get_cycles_data("All")
 
     def get_individuals_data(self) -> pandas.DataFrame:
+        """Get the spreadsheet of records of individuals.
+
+        This function will navigate to the individuals page, download the table in Excel format, and load it
+        into a DataFrame.
+
+        Returns:
+            The dataframe object returned by running `pandas.read_excel(f, header=[0, 1, 2])` on the downloaded
+            Excel spreadsheet."""
         wait = WebDriverWait(self.driver, 10)
         wait.until(find_element("a", text="Individuals")).click()
         wait.until(find_element("button", name="EXPORT DATA|")).click()
         wait.until(find_element("a", text="Excel")).click()
-        auth = wait.until(
-            find_element(
-                "input",
-                name="Please enter a verification code from the Google Authenticator "
-                "app on your mobile device to continue.",
+        try:
+            # When downloading individual data for the whole region, there is an extra TOTP check that we have to
+            # pass in to authenticate.
+            auth = wait.until(
+                find_element(
+                    "input",
+                    name="Please enter a verification code from the Google Authenticator "
+                    "app on your mobile device to continue.",
+                )
             )
-        )
-        auth.send_keys(self.get_totp())
-        wait.until(find_element("button", name="OK")).click()
+            auth.send_keys(self.get_totp())
+            wait.until(find_element("button", name="OK")).click()
+        except TimeoutException:
+            pass
         download_path = Path(self.download_dir.name).joinpath("All Individuals.xlsx")
         while not download_path.is_file():
             time.sleep(0.1)
@@ -258,6 +294,14 @@ class SRPO:
             data = pandas.read_excel(f, header=[0, 1])
         download_path.unlink()
         return data
+
+
+def real_path(path):
+    """Helper function for arg parser to check whether a directory exists."""
+    p = Path(path)
+    if not p.exists():
+        raise NotADirectoryError(p)
+    return p
 
 
 def get_args():
@@ -268,13 +312,20 @@ def get_args():
     parser.add_argument(
         "-p", "--password", type=str, help="Password used to log into the SRPO website."
     )
-    auth_group = parser.add_mutually_exclusive_group(required=True)
-    auth_group.add_argument(
+    parser.add_argument(
         "-s",
         "--secret",
         type=str,
         default=None,
         help="Secret string in base-32 format that can be used to generate TOTP tokens.",
+    )
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        type=real_path,
+        default=None,
+        help="If this is specified, any files that were downloaded will be copied into this directory instead of "
+        "deleted after being loaded."
     )
     return parser.parse_args()
 
@@ -294,10 +345,12 @@ if __name__ == "__main__":
 
     args = get_args()
 
-    srpo = SRPO(args.secret)
+    srpo = SRPO(args.secret, args.output_dir)
     srpo.login(args.username, args.password)
     srpo.set_area("British Columbia")
-    # latest_cycles = srpo.get_latest_cycles()
-    # all_cycles = srpo.get_all_cycles()
+    # srpo.set_area("BC03 - Southeast Victoria")
+    latest_cycles = srpo.get_latest_cycles()
+    all_cycles = srpo.get_all_cycles()
     # individuals = srpo.get_individuals_data()
     srpo.cleanup()
+    exit(0)  # just adding an extra line for a breakpoint
