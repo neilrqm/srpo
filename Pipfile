@@ -10,6 +10,7 @@ selenium-wire = "*"
 webdriver-manager = "*"
 openpyxl = "*"
 pyotp = "*"
+beautifulsoup4 = "*"
 
 [dev-packages]
 flake8 = "*"

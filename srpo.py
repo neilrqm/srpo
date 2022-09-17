@@ -9,18 +9,21 @@ import time
 import tempfile
 
 from pathlib import Path
-from typing import Callable
+from typing import Any, Callable, List
 
 from seleniumwire import webdriver
 from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.remote.webelement import WebElement
 from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 from webdriver_manager.chrome import ChromeDriverManager
 from selenium.webdriver.common.by import By
 from selenium.common.exceptions import (
     WebDriverException,
     SessionNotCreatedException,
-    TimeoutException
+    TimeoutException,
 )
+
+from activity_parser import Activity, ActivityParser
 
 
 class find_element:
@@ -32,15 +35,17 @@ class find_element:
         tag_name: str,
         name: str = None,
         text: str = None,
-        comparator: Callable[[str, str], bool] = None,
+        comparator: Callable[[str, Any], bool] = None,
     ):
         """Get a new waiter object that determines the presence of an element that matches the given HTML tag,
         accessible name, and text value.
 
-        The comparator parameter should define a function that takes two strings as parameters and returns
+        The comparator parameter should define a function that takes two parameters and returns
         a boolean value.  This function will be used to compare the name or text (or both) of each tag examined
         to determine if the element matches the given criteria.  If the comparator is set to None, then
-        the equality comparator will be used.
+        the equality comparator will be used.  The element's name/text string will be passed into the comparator as the
+        first parameter, and the `name` or `text` parameter passed into this object will be used as the second
+        parameter.
 
         Args:
             tag_name (str): Search for an HTML element matching this tag.
@@ -88,6 +93,7 @@ class SRPO:
         self.driver = None
         self.secret = secret
         self.output_dir = output_dir
+        self.parser = ActivityParser()
 
         self.download_dir = tempfile.TemporaryDirectory()
         exp = {"download.default_directory": self.download_dir.name}
@@ -105,6 +111,31 @@ class SRPO:
         self.options.add_argument("--disable-gpu")
         self.options.add_argument("--disable-dev-shm-usage")
         self.options.add_argument("--no-sandbox")
+
+        self.childrens_class_grades = [f"Grade {x}" for x in range(1, 7)]
+        self.study_circle_books = [f"Book {x}," for x in range(1, 8)] + [
+            f"Book {x} (U{y})," for x in range(8, 15) for y in range(1, 4)
+        ]
+        self.junior_youth_texts = [
+            "Breezes of Confirmation",
+            "Wellspring of Joy",
+            "Habits of an Orderly Mind",
+            "Glimmerings of Hope",
+            "Walking the Straight Path",
+            "Learning About Excellence",
+            "Thinking About Numbers",
+            "Observation and Insight",
+            "The Human Temple",
+            "Drawing on the Power of the Word",
+            "Spirit of Faith",
+            "Power of the Holy Spirit",
+        ]
+        # this is the list of strings that identify the link to specific activities within the Activities page.
+        self.all_activity_prefixes = (
+            self.childrens_class_grades
+            + self.study_circle_books
+            + self.junior_youth_texts
+        )
 
     def cleanup(self):
         """Exit the web browser and delete the temporary download directory."""
@@ -295,13 +326,96 @@ class SRPO:
         download_path.unlink()
         return data
 
+    def _get_activity_links(self) -> list:
+        """Get the links to all the activities listed on the current page.
 
-def real_path(path):
+        This assumes that the SRPO object has already browsed to the Activities page.  This function will scan through
+        all of the anchor elements on the page and pick out the ones that link to activities.  It makes this
+        determination by checking the accessible name of the anchor element.  If the accessible name begins with the
+        name of a children's class grade, a junior youth text title, or a study circle book, as defined in the lists
+        initialized in this class's constructor, then it is considered a link to an activity and is included in the
+        resulting list that is returned."""
+        anchors = self.driver.find_elements(by=By.TAG_NAME, value="a")
+        activity_links = []
+        for a in anchors:
+            for prefix in self.all_activity_prefixes:
+                if a.accessible_name.startswith(prefix):
+                    activity_links.append(a)
+                    break
+        return activity_links
+
+    def _retrieve_activity(self, activity_link: WebElement) -> Activity:
+        """Open an activity page and parse the activity's data into an object.
+
+        Args:
+            activity_link (WebElement): The link to click to open the activity's page.
+
+        Return: An activity object containing the activity's data."""
+        wait = WebDriverWait(self.driver, 10)
+        activity_link.click()
+        time.sleep(1)
+        # "×" is the text of the button that closes the currently-opened activity page
+        close_button = wait.until(find_element("span", text="×"))
+        activity = self.parser.parse(self.driver.page_source)
+        close_button.click()
+        return activity
+
+    def get_activities(self, activity: str = "All Activities") -> List[Activity]:
+        """Get data on activities of a given type.
+
+        Args:
+            activity (str): String specifying the activity to retrieve data on.  Valid choices are:
+
+                * All Activities
+                * Children’s Classes
+                * Junior Youth Groups
+                * Study Circles
+
+                (Note the special apostrophe used in "Children’s Classes")
+        """
+        valid_activities = [
+            "All Activities",
+            "Children’s Classes",
+            "Junior Youth Groups",
+            "Study Circles",
+        ]
+        assert activity in valid_activities
+        wait = WebDriverWait(self.driver, 10)
+        wait.until(find_element("a", text="Activities")).click()
+        wait.until(
+            find_element(
+                "button",
+                text=valid_activities,
+                comparator=lambda text, choices: text in choices,
+            )
+        ).click()
+        wait.until(find_element("a", text=activity)).click()
+        # TODO: see if there's an element that indicates it's done loading
+        time.sleep(1.5)
+        activities = []
+        # the selenium approach used in this script doesn't seem to be sufficient to pull table data efficiently
+        # out of the page source (or maybe I just don't know how to use it properly), so we pass the page source
+        # into a separate parser to pull the activity data out of it.
+        next_page_button = wait.until(find_element("a", name="Next page"))
+        while True:
+            # This while loop iterates over the pages of data
+            for link in self._get_activity_links():
+                activities.append(self._retrieve_activity(link))
+            if "k-state-disabled" in next_page_button.get_attribute("class"):
+                # There aren't any more pages
+                break
+            else:
+                next_page_button.click()
+                time.sleep(1)
+        return activities
+
+
+def real_path(path: str) -> Path:
     """Helper function for arg parser to check whether a directory exists."""
     p = Path(path)
-    if not p.exists():
-        raise NotADirectoryError(p)
-    return p
+    if p.exists() and p.is_dir():
+        return p
+    raise NotADirectoryError(p)
 
 
 def get_args():
@@ -325,7 +439,7 @@ def get_args():
         type=real_path,
         default=None,
         help="If this is specified, any files that were downloaded will be copied into this directory instead of "
-        "deleted after being loaded."
+        "deleted after being loaded.",
     )
     return parser.parse_args()
 
@@ -347,10 +461,14 @@ if __name__ == "__main__":
 
     srpo = SRPO(args.secret, args.output_dir)
     srpo.login(args.username, args.password)
-    srpo.set_area("British Columbia")
-    # srpo.set_area("BC03 - Southeast Victoria")
-    latest_cycles = srpo.get_latest_cycles()
-    all_cycles = srpo.get_all_cycles()
+    # srpo.set_area("British Columbia")
+    srpo.set_area("BC03 - Southeast Victoria")
+    # latest_cycles = srpo.get_latest_cycles()
+    # all_cycles = srpo.get_all_cycles()
     # individuals = srpo.get_individuals_data()
+    # activities = srpo.get_activities("Children’s Classes")
+    # activities = srpo.get_activities("Junior Youth Groups")
+    # activities = srpo.get_activities("Study Circles")
+    activities = srpo.get_activities("All Activities")
     srpo.cleanup()
     exit(0)  # just adding an extra line for a breakpoint
