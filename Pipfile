@@ -11,6 +11,7 @@ webdriver-manager = "*"
 openpyxl = "*"
 pyotp = "*"
 beautifulsoup4 = "*"
+pdfme = "*"
 
 [dev-packages]
 flake8 = "*"
