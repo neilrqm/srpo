@@ -63,13 +63,12 @@ class Activity:
         # Study circles don't have a "currently participating" checkbox in the participants table
         has_current_col = self._get_activity_type() != "Study Circle"
         tablespec = {
-            "widths": [2, 2, 1, 1] if has_current_col else [2.2, 2.2, 1.1],
-            "style": "formtext",
+            "widths": [2, 1.5, 1.5, 1] if has_current_col else [2, 1.5, 2],
+            "style": "formlabel",
             "table": [
                 [
                     {
                         "colspan": 4 if has_current_col else 3,
-                        "style": "formlabel",
                         ".": "Participants:",
                     },
                     None,
@@ -86,9 +85,16 @@ class Activity:
         }
         for participant in self.participants:
             rowspec = (
-                [participant.name, participant.locality]
-                + ([participant.isCurrent] if has_current_col else [])
-                + [participant.isBahai]
+                [
+                    {".": participant.name, "style": "formtext"},
+                    {".": participant.locality, "style": "formtext"},
+                ]
+                + (
+                    [{".": participant.isCurrent, "style": "formtext"}]
+                    if has_current_col
+                    else []
+                )
+                + [{".": participant.isBahai, "style": "formtext"}]
             )
             tablespec["table"].append(rowspec)
         return tablespec
@@ -139,7 +145,11 @@ class Activity:
                     None,
                     {
                         "style": "formtext",
-                        ".": "Yes" if self.doing_service_projects else "No",
+                        ".": ""
+                        if self.doing_service_projects is None
+                        else "Yes"
+                        if self.doing_service_projects
+                        else "No",
                     },
                     None,
                     None,
