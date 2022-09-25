@@ -1,13 +1,14 @@
 # SRPO Access Script
 
-This script is a work-in-process that provides acces to certain parts of the online SRP.
+This work-in-progress code is for programatically accessing certain data on the online SRP.  
 
 ## Installation
 
-This requires that Google Chrome or chromium-browser be installed on the system path.
+This requires that `google-chrome` or `chromium-browser` be installed on the system path.
 
 To install Python prerequisites, install `pipenv` and run `pipenv install`.  This will create a virtual environment
-with the necessary packages installed.
+with the necessary packages installed.  Run `pipenv shell` to open a shell with the prerequisites installed, or
+run the scripts with `pipenv run ...`.
 
 ## Usage
 
