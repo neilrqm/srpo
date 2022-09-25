@@ -3,6 +3,7 @@
 import argparse
 import logging
 import pandas
+import pickle
 import pyotp
 import shutil
 import time
@@ -93,7 +94,11 @@ class SRPO:
         self.driver = None
         self.secret = secret
         self.output_dir = output_dir
+        self.activity_callback = None
         self.parser = ActivityParser()
+
+        # prevent selenium from spamming the output
+        logging.getLogger("seleniumwire").setLevel(logging.WARNING)
 
         self.download_dir = tempfile.TemporaryDirectory()
         exp = {"download.default_directory": self.download_dir.name}
@@ -112,35 +117,17 @@ class SRPO:
         self.options.add_argument("--disable-dev-shm-usage")
         self.options.add_argument("--no-sandbox")
 
-        self.childrens_class_grades = [f"Grade {x}" for x in range(1, 7)]
-        self.study_circle_books = [f"Book {x}," for x in range(1, 8)] + [
-            f"Book {x} (U{y})," for x in range(8, 15) for y in range(1, 4)
-        ]
-        self.junior_youth_texts = [
-            "Breezes of Confirmation",
-            "Wellspring of Joy",
-            "Habits of an Orderly Mind",
-            "Glimmerings of Hope",
-            "Walking the Straight Path",
-            "Learning About Excellence",
-            "Thinking About Numbers",
-            "Observation and Insight",
-            "The Human Temple",
-            "Drawing on the Power of the Word",
-            "Spirit of Faith",
-            "Power of the Holy Spirit",
-        ]
-        # this is the list of strings that identify the link to specific activities within the Activities page.
-        self.all_activity_prefixes = (
-            self.childrens_class_grades
-            + self.study_circle_books
-            + self.junior_youth_texts
-        )
-
     def cleanup(self):
         """Exit the web browser and delete the temporary download directory."""
         self.download_dir.cleanup()
         self.driver.quit()
+
+    def set_activity_cb(self, callback: Callable[[Activity], None]):
+        """Set a callback function that will be called when an activity has been downloaded in `get_activities()`.
+
+        Args:
+            callback: a callable that takes no parameters and returns nothing"""
+        self.activity_callback = callback
 
     def get_totp(self) -> str:
         """Get a time-based one-time password.
@@ -196,7 +183,7 @@ class SRPO:
         ).send_keys(self.get_totp())
         wait.until(find_element("button", name="Continue")).click()
 
-    def set_area(self, area: str, delay: float = 1.0):
+    def set_area(self, area: str, delay: float = 1.5):
         """Set the SRPO to filter data by a certain scope.
 
         It is expected that this is run on the home page that loads upon login, not other pages.
@@ -221,7 +208,7 @@ class SRPO:
         wait.until(
             find_element("button", name="Canada", comparator=str.startswith)
         ).click()
-        for _ in range(10):
+        for _ in range(15):
             # wait until the tree that filters areas to be included in the dataset is displayed.  The tree elements
             # are defined as spans and there are a whole bunch of them, so we do this by waiting until there are
             # a whole bunch of spans in the page source.
@@ -323,6 +310,8 @@ class SRPO:
             time.sleep(0.1)
         with open(download_path, "rb") as f:
             data = pandas.read_excel(f, header=[0, 1])
+        if self.output_dir is not None:
+            shutil.copy2(download_path, self.output_dir)
         download_path.unlink()
         return data
 
@@ -338,7 +327,7 @@ class SRPO:
         anchors = self.driver.find_elements(by=By.TAG_NAME, value="a")
         activity_links = []
         for a in anchors:
-            for prefix in self.all_activity_prefixes:
+            for prefix in ActivityParser.all_activity_prefixes:
                 if a.accessible_name.startswith(prefix):
                     activity_links.append(a)
                     break
@@ -400,7 +389,10 @@ class SRPO:
         while True:
             # This while loop iterates over the pages of data
             for link in self._get_activity_links():
-                activities.append(self._retrieve_activity(link))
+                activity = self._retrieve_activity(link)
+                if self.activity_callback is not None:
+                    self.activity_callback(activity)
+                activities.append(activity)
             if "k-state-disabled" in next_page_button.get_attribute("class"):
                 # There aren't any more pages
                 break
@@ -408,6 +400,21 @@ class SRPO:
                 next_page_button.click()
                 time.sleep(1)
         return activities
+
+    def get_facilitators(self, activities: List[Activity]) -> List[str]:
+        """Pull a list of names of current facilitators out of a list of activities.  Each name will only appear once
+        in the output list.
+
+        Args:
+            activities (list): A list of activity objects to pull facilitator names out of.
+
+        Return: A de-duplicated list of names of people currently listed as facilitating educational activities."""
+        facilitators = set()
+        for a in activities:
+            for f in a.facilitators:
+                if f.isCurrent:
+                    facilitators.add(str(f))
+        return list(facilitators)
 
 
 def real_path(path: str) -> Path:
@@ -449,26 +456,28 @@ if __name__ == "__main__":
         level=logging.INFO,
         format="%(asctime)s %(levelname)s - %(message)s",
     )
-    logging.getLogger("seleniumwire").setLevel(logging.WARNING)
-    """if args.log_file is not None:
-        handler = logging.FileHandler(args.log_file)
-        handler.setFormatter(
-            logging.Formatter("%(asctime)s %(levelname)s - %(message)s")
-        )
-        logging.getLogger().addHandler(handler)"""
 
     args = get_args()
 
     srpo = SRPO(args.secret, args.output_dir)
-    srpo.login(args.username, args.password)
+    # srpo.login(args.username, args.password)
     # srpo.set_area("British Columbia")
-    srpo.set_area("BC03 - Southeast Victoria")
+    # srpo.set_area("BC03 - Southeast Victoria")
+    # srpo.set_area("BC06 - Cowichan Valley")
     # latest_cycles = srpo.get_latest_cycles()
     # all_cycles = srpo.get_all_cycles()
     # individuals = srpo.get_individuals_data()
     # activities = srpo.get_activities("Children’s Classes")
     # activities = srpo.get_activities("Junior Youth Groups")
     # activities = srpo.get_activities("Study Circles")
-    activities = srpo.get_activities("All Activities")
-    srpo.cleanup()
+    # activities = srpo.get_activities("All Activities")
+    # srpo.cleanup()
+    with open("/home/nrqm/srpo/data.pkl", "rb") as f:
+        activities = pickle.load(f)
+    activities[1].generate_pdf("./test.pdf")
+    facilitators = srpo.get_facilitators(activities)
+    # for i, a in enumerate(activities):
+    #    a.generate_pdf(Path(f"/home/nrqm/srpo/activities/{i:02} - {str(a)}.pdf"))
+    # with open("data.pkl", "wb") as f:
+    #    pickle.dump(activities, f)
     exit(0)  # just adding an extra line for a breakpoint
