@@ -3,12 +3,12 @@
 import argparse
 import logging
 import pandas
-import pickle
 import pyotp
 import shutil
 import time
 import tempfile
 
+from args import add_srpo_config, get_area_string, get_area_code_epilog
 from pathlib import Path
 from typing import Any, Callable, List
 
@@ -208,7 +208,7 @@ class SRPO:
         wait.until(
             find_element("button", name="Canada", comparator=str.startswith)
         ).click()
-        for _ in range(15):
+        for _ in range(25):
             # wait until the tree that filters areas to be included in the dataset is displayed.  The tree elements
             # are defined as spans and there are a whole bunch of them, so we do this by waiting until there are
             # a whole bunch of spans in the page source.
@@ -380,7 +380,7 @@ class SRPO:
         ).click()
         wait.until(find_element("a", text=activity)).click()
         # TODO: see if there's an element that indicates it's done loading
-        time.sleep(1.5)
+        time.sleep(2.5)
         activities = []
         # the selenium approach used in this script doesn't seem to be sufficient to pull table data efficiently
         # out of the page source (or maybe I just don't know how to use it properly), so we pass the page source
@@ -426,28 +426,11 @@ def real_path(path: str) -> Path:
 
 
 def get_args():
-    parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "-u", "--username", type=str, help="Username used to log into the SRPO website."
+    parser = argparse.ArgumentParser(
+        description="Generate forms for different activities in a given area.",
+        epilog=get_area_code_epilog(),
     )
-    parser.add_argument(
-        "-p", "--password", type=str, help="Password used to log into the SRPO website."
-    )
-    parser.add_argument(
-        "-s",
-        "--secret",
-        type=str,
-        default=None,
-        help="Secret string in base-32 format that can be used to generate TOTP tokens.",
-    )
-    parser.add_argument(
-        "-o",
-        "--output-dir",
-        type=real_path,
-        default=None,
-        help="If this is specified, any files that were downloaded will be copied into this directory instead of "
-        "deleted after being loaded.",
-    )
+    add_srpo_config(parser)
     return parser.parse_args()
 
 
@@ -460,22 +443,25 @@ if __name__ == "__main__":
     args = get_args()
 
     srpo = SRPO(args.secret, args.output_dir)
-    # srpo.login(args.username, args.password)
-    # srpo.set_area("British Columbia")
+    srpo.login(args.username, args.password)
+    srpo.set_area(get_area_string(args.area))
+    srpo.set_area("British Columbia")
     # srpo.set_area("BC03 - Southeast Victoria")
-    # srpo.set_area("BC06 - Cowichan Valley")
-    # latest_cycles = srpo.get_latest_cycles()
-    # all_cycles = srpo.get_all_cycles()
+    # srpo.set_area("BC20 - Golden Ears")
+    # srpo.set_area("BC02 - West Shore")
+    latest_cycles = srpo.get_latest_cycles()
+    all_cycles = srpo.get_all_cycles()
     # individuals = srpo.get_individuals_data()
     # activities = srpo.get_activities("Children’s Classes")
     # activities = srpo.get_activities("Junior Youth Groups")
     # activities = srpo.get_activities("Study Circles")
     # activities = srpo.get_activities("All Activities")
-    # srpo.cleanup()
-    with open("/home/nrqm/srpo/data.pkl", "rb") as f:
-        activities = pickle.load(f)
-    activities[1].generate_pdf("./test.pdf")
-    facilitators = srpo.get_facilitators(activities)
+    srpo.cleanup()
+    # import pickle
+    # with open("/home/nrqm/srpo/data.pkl", "rb") as f:
+    #    activities = pickle.load(f)
+    # activities[1].generate_pdf("./test.pdf")
+    # facilitators = srpo.get_facilitators(activities)
     # for i, a in enumerate(activities):
     #    a.generate_pdf(Path(f"/home/nrqm/srpo/activities/{i:02} - {str(a)}.pdf"))
     # with open("data.pkl", "wb") as f:
