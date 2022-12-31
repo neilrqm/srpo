@@ -24,7 +24,7 @@ def get_args():
         "--type",
         required=True,
         type=str,
-        choices=["latestcycles", "allcycles"],
+        choices=["latestcycles", "allcycles", "individuals"],
         help="What type of data to import from the SRPO into the spreadsheet",
     )
 
@@ -37,12 +37,12 @@ if __name__ == "__main__":
     sheet = Sheet(args.sheet_id, args.tab_name, args.key_path)
 
     srpo = SRPO(args.secret, None)
-    print("Logging into SRPO...", end="")
+    print("Logging into SRPO...", end="", flush=True)
     srpo.login(args.username, args.password)
     srpo.set_area(get_area_string(args.area))
-    print(" Done")
+    print(" Done", flush=True)
 
-    print("Retrieving data from SRPO...", end="")
+    print("Retrieving data from SRPO...", end="", flush=True)
     if args.type == "latestcycles":
         data = srpo.get_latest_cycles()
         cell_range = "A4:BS"
@@ -55,8 +55,18 @@ if __name__ == "__main__":
         if not sheet.has_cgp_data():
             print("Spreadsheet tab is not correctly formatted with CGP data.")
             exit(1)
-    print(" Done")
+    elif args.type == "individuals":
+        data = srpo.get_individuals_data()
+        cell_range = "A3:BZ"
+        if not sheet.has_individual_data():
+            print(
+                "Spreadsheet tab is not correctly formatted with individual record data."
+            )
+            exit(1)
+    srpo.cleanup()
 
-    print("Updating sheet...", end="")
+    print(" Done", flush=True)
+
+    print("Updating sheet...", end="", flush=True)
     sheet.update(data, cell_range)
-    print(" Done")
+    print(" Done", flush=True)

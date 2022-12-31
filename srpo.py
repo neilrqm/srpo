@@ -285,7 +285,7 @@ class SRPO:
         into a DataFrame.
 
         Returns:
-            The dataframe object returned by running `pandas.read_excel(f, header=[0, 1, 2])` on the downloaded
+            The dataframe object returned by running `pandas.read_excel(f, header=[0, 1])` on the downloaded
             Excel spreadsheet."""
         wait = WebDriverWait(self.driver, 10)
         wait.until(find_element("a", text="Individuals")).click()
@@ -430,7 +430,14 @@ def get_args():
         description="Generate forms for different activities in a given area.",
         epilog=get_area_code_epilog(),
     )
-    add_srpo_config(parser)
+    parser = add_srpo_config(parser)
+    parser.add_argument(
+        "-o",
+        "--output-dir",
+        type=Path,
+        default=None,
+        help="If this is set, downloaded files will be copied to this directory.",
+    )
     return parser.parse_args()
 
 
@@ -445,13 +452,13 @@ if __name__ == "__main__":
     srpo = SRPO(args.secret, args.output_dir)
     srpo.login(args.username, args.password)
     srpo.set_area(get_area_string(args.area))
-    srpo.set_area("British Columbia")
+    # srpo.set_area("British Columbia")
     # srpo.set_area("BC03 - Southeast Victoria")
     # srpo.set_area("BC20 - Golden Ears")
     # srpo.set_area("BC02 - West Shore")
-    latest_cycles = srpo.get_latest_cycles()
-    all_cycles = srpo.get_all_cycles()
-    # individuals = srpo.get_individuals_data()
+    # latest_cycles = srpo.get_latest_cycles()
+    # all_cycles = srpo.get_all_cycles()
+    individuals = srpo.get_individuals_data()
     # activities = srpo.get_activities("Children’s Classes")
     # activities = srpo.get_activities("Junior Youth Groups")
     # activities = srpo.get_activities("Study Circles")

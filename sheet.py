@@ -1,6 +1,7 @@
 import math
 import pandas as pd
 
+from datetime import datetime as dt
 from google.oauth2 import service_account
 from googleapiclient.discovery import build
 from pathlib import Path
@@ -22,7 +23,8 @@ class Sheet:
             tab_name (str): The name of the tab to write to.  This is the name given to the tab in the spreadsheet,
                 e.g. "Sheet1".
             credential_keyfile (Path): A path to the JSON keyfile providing credentials for accessing the spreadsheet.
-                The keyfile should be for a service account with the editor role on the Google Sheets API."""
+                The keyfile should be for a service account with the editor role on the Google Sheets API and
+                edit access to the spreadsheet in question."""
         self.sheet_id = sheet_id
         self.tab_name = tab_name
         self.credential_keyfile = credential_keyfile
@@ -74,7 +76,7 @@ class Sheet:
 
         Return:
             True if the currently configured tab's headers match the expected CGP data signature."""
-        # This signature matches the first six columns of the 3-row headers CGP data tables (range A1:G3)
+        # This signature matches the first six columns of the 3-row headers for CGP data tables (range A1:G3)
         signature = [
             [
                 "Cluster",
@@ -87,6 +89,52 @@ class Sheet:
             ],
             [],
             ["", "", "", "", "", "", "Book 1"],
+        ]
+        return self._check_sheet_format(signature)
+
+    def has_individual_data(self) -> bool:
+        # This signature matches the first 18 columns of the 2-row headers for individual data tables (range A1:R2)
+        signature = [
+            [
+                "First Name(s)",
+                "Family Name",
+                "Sex",
+                "Age Category",
+                "Estimated Age",
+                "Date of Birth",
+                "Registered Bahá’í",
+                "Date Registered",
+                "National Community",
+                "Region",
+                "Cluster",
+                "Locality",
+                "Focus Neighbourhood",
+                "Address",
+                "Telephone",
+                "Email",
+                "Comments",
+                "Children's Classes",
+            ],
+            [
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "",
+                "Grade 1",
+            ],
         ]
         return self._check_sheet_format(signature)
 
@@ -109,7 +157,8 @@ class Sheet:
             cell_range (str): A range of cells specifying the area to write data to.  This should start after any
                 headers that are already in the spreadsheet.  For cycle data, a cell range of "A4:BS" will usually
                 be appropriate---the first three rows are the headers so we start copying data at row 4, and the
-                data table extends from column A to column BS."""
+                data table extends from column A to column BS.  For records of individuals, a cell range of "A3:BZ"
+                will usually be appropriate."""
         range_str = f"'{self.tab_name}'!{cell_range}"
         creds = service_account.Credentials.from_service_account_file(
             self.credential_keyfile, scopes=self.scopes
@@ -117,11 +166,18 @@ class Sheet:
         service = build("sheets", "v4", credentials=creds)
         sheet = service.spreadsheets()
         values = data.to_numpy().tolist()
-        # NaN values show up sometimes in the "Participants in Exp. Phase" column, we need to replace them with strings
+        # NaN values show up sometimes in the "Participants in Exp. Phase" column, and NaT (null value) in the
+        # individuals spreadsheet; we need to replace these special values with strings
         for row in values:
             for i in range(0, len(row)):
-                if isinstance(row[i], float) and math.isnan(row[i]):
+                if (
+                    isinstance(row[i], float)
+                    and math.isnan(row[i])
+                    or pd.isnull(row[i])
+                ):
                     row[i] = ""
+                elif isinstance(row[i], dt):
+                    row[i] = row[i].isoformat().split("T")[0]
         body = {
             "majorDimension": "ROWS",  # indicate that we're sending a list of rows
             "range": range_str,
