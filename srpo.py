@@ -103,8 +103,8 @@ class SRPO:
         self.download_dir = tempfile.TemporaryDirectory()
         exp = {"download.default_directory": self.download_dir.name}
         self.options = webdriver.ChromeOptions()
-        self.options.headless = True
         self.options.add_experimental_option("prefs", exp)
+        self.options.add_argument("--headless=new")
         self.options.add_argument("--window-size=1920,1080")
         self.options.add_argument("--ignore-certificate-errors")
         self.options.add_argument("--allow-running-insecure-content")
@@ -243,9 +243,11 @@ class SRPO:
             find_element("button", text=" Cycles", comparator=str.endswith)
         ).click()
         wait.until(find_element("a", text=f"{label} Cycles")).click()
-        time.sleep(0.5)
+        time.sleep(1.5)
         wait.until(find_element("button", name="EXPORT DATA|")).click()
+        time.sleep(0.5)
         wait.until(find_element("a", text="Excel")).click()
+        self.driver.save_screenshot("/mnt/c/Users/nrqm/Desktop/screenshot.png")
         download_path = Path(self.download_dir.name).joinpath(f"{label} Cycles.xlsx")
         while not download_path.is_file():
             time.sleep(0.1)
